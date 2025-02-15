@@ -1,15 +1,17 @@
-use std::{collections::VecDeque,io::{Read, Write}, net::TcpStream, sync::{Arc,Mutex}, thread::{self, sleep}, time::Duration};
+use std::{io::{Read, Write}, net::TcpStream, sync::{Arc,Mutex}, thread::{self, sleep}, time::Duration};
+
+use super::message::{Message, MessageQueue};
 
 pub(super) struct ProducerHandler{
     name:String, 
     stream:TcpStream,
-    message_queue:Arc<Mutex<VecDeque<[u8;256]>>>  
+    message_queue:Arc<Mutex<MessageQueue>>  
 }  
 impl ProducerHandler{ 
-    pub fn new(name:String,producer_stream:TcpStream,message_queue:Arc<Mutex<VecDeque<[u8;256]>>>)->Self{ 
+    pub fn new(name:String,producer_stream:TcpStream,message_queue:Arc<Mutex<MessageQueue>>)->Self{ 
         ProducerHandler {name,stream:producer_stream,message_queue}  
     }
-    pub fn spawn(mut self)->Result<(),std::io::Error>{    
+    pub fn spawn(mut self,consumer_count:i32)->Result<(),std::io::Error>{     
         thread::spawn(move || {
             loop {
                 sleep(Duration::from_secs(3));  
@@ -22,35 +24,42 @@ impl ProducerHandler{
                 println!("readed {} by {}",readed_bytes,self.name); 
                 // now we will push the data to the after obtaining the mutex lock on the array
                 let mut message_queue = self.message_queue.lock().unwrap();
-                message_queue.push_back(buffer);
+                message_queue.push(Message::new(buffer,consumer_count)); 
             }
         });
-        Ok(())  
+        Ok(())   
     }
 }
 
 pub(super) struct ConsumerHandler{
+    id:i32,
     name:String,
     stream:TcpStream,
-    message_queue:Arc<Mutex<VecDeque<[u8;256]>>>  
+    message_queue:Arc<Mutex<MessageQueue>>, 
+    consumable_index:usize 
 }
 impl ConsumerHandler {
-    pub fn new(name:String,consumer_stream:TcpStream,message_queue:Arc<Mutex<VecDeque<[u8;256]>>>)->Self{
-        ConsumerHandler{name,stream:consumer_stream,message_queue} 
+    pub fn new(id:i32,name:String,consumer_stream:TcpStream,message_queue:Arc<Mutex<MessageQueue>>)->Self{
+        ConsumerHandler{id,name,stream:consumer_stream,message_queue,consumable_index:0}    
     }
     pub fn spawn(mut self)->Result<(),std::io::Error>{
         thread::spawn(move || {
                 loop {
+                    println!("consumer {} (id: {}) is trying to consumer",self.name,self.id);  
                     let mut message_queue = self.message_queue.lock().unwrap();
-                    match message_queue.pop_front() {
-                        Some(item)=>{
-                            self.stream.write_all(&item).expect("error while writing to the consumer");   
+
+                    match message_queue.get(self.consumable_index)  
+                    { 
+                        Some(message)=>{       
+                             self.stream.write_all(&message.get_buffer()).expect("error while writing to the consumer");
+                             message.decrement_remaining_consumed_count();  
+                            self.consumable_index+=1;    
                         }
                         None=>{
-                            drop(message_queue);
-                            sleep(Duration::from_secs(10));
+                            println!("Nothing to consume for consumer : {}",self.name); 
                         }
-                    }  
+                    } 
+                    sleep(Duration::from_secs(10)); 
                 }
         });
         Ok(()) 
