@@ -2,20 +2,20 @@ use std::io::Error;
 
 pub struct Message{
     buffer:[u8;256],
-    remaining_consumed_count:i32 
+    consumed_count:i32  
 }
 impl Message{
-    pub fn new(buffer:[u8;256],consumer_count:i32)->Self{
-        Message {buffer,remaining_consumed_count:consumer_count}   
+    pub fn new(buffer:[u8;256])->Self{
+        Message {buffer,consumed_count:0  }   
     }
-    pub fn decrement_remaining_consumed_count(&mut self){
-        self.remaining_consumed_count-=1; 
+    pub fn increment_consumed_count(&mut self){
+        self.consumed_count+=1;  
     } 
     pub fn get_buffer(&self)->[u8;256]{
         self.buffer 
     }
-    pub fn get_remaining_consumed_count(&self)->i32{
-        self.remaining_consumed_count 
+    pub fn get_consumed_count(&self)->i32{
+        self.consumed_count 
     } 
 }
 
@@ -33,16 +33,17 @@ impl MessageQueue{
     } 
     pub fn push(&mut self,message:Message)->Result<(),Error>{  
         if self.size()==self.ring_buffer.len()  
-        {
+    {
            return Err(Error::new(std::io::ErrorKind::Other,"buffer is full"));    
         } 
+        println!("element added at : {}",self.first_empty_index);  
         self.ring_buffer[self.first_empty_index] = Some(message);
         self.first_empty_index = (self.first_empty_index+1)%self.ring_buffer.len();  
         Ok(()) 
-    }
-    pub fn get(&mut self,index:usize)->Option<&mut Message>{    
-        let rounded_index = (index%self.ring_buffer.len()+self.start_index)%self.ring_buffer.len(); 
-        self.ring_buffer[rounded_index].as_mut()  
+    }  
+    pub fn get(&mut self,index:usize)->Option<&mut Message>{   
+        let rounded_index = index%self.ring_buffer.len();
+        self.ring_buffer[rounded_index].as_mut()   
     }  
     pub fn pop(&mut self){
         if self.size()>0 {

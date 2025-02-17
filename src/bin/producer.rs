@@ -16,7 +16,7 @@ fn main()->Result<(),std::io::Error>{
             "127.0.0.1:3370".to_string()  
         }; 
     println!("trying to connect to the dostoevsky on address : {}",dostoevsky_addr);
-    let mut producer_node = producer_node::ProducerNode::new(port,dostoevsky_addr)?;
+    let mut producer_node = producer_node::ProducerNode::new(port,dostoevsky_addr,args[3].clone())?; 
     producer_node.start()?;  
 
     println!("\nwelcome to the system\n");

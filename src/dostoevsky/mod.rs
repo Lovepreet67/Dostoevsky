@@ -1,24 +1,26 @@
-use std::{io::Read, net::TcpListener, sync::{Arc, Mutex}, thread::{self, sleep}, time::Duration};
-
+use std::{collections::HashMap, io::Read,sync::{Arc,Mutex}, net::TcpListener, thread::{self, sleep}, time::Duration};
+ 
 use handler::{ConsumerHandler, ProducerHandler};
-
-mod handler; 
+mod topic; 
+mod handler;  
 mod message;
-use message::MessageQueue; 
+use topic::Topic; 
 pub(super) struct DostoevskyNode{
     listener:TcpListener,
-    message_queue:Arc<Mutex<MessageQueue>>,
-    consumer_count:i32 
+    topics:HashMap<String,Arc<Mutex<Topic>>> 
 }   
 impl DostoevskyNode{  
     pub fn new(port:&str)->Result<Self,std::io::Error>{
         let listener = TcpListener::bind(format!("127.0.0.1:{}",port))?;
-        Ok(DostoevskyNode {listener,message_queue:Arc::new(Mutex::new(MessageQueue::new())),consumer_count:0})
+        Ok(DostoevskyNode {listener,topics:HashMap::new()})  
     }
     pub fn read_all(&mut self){
+        println!("creating a topic t1");
+        self.create_topic("t1".to_string());
+        println!("creating a topic t2");
+        self.create_topic("t2".to_string());  
         let mut consumer_id_seeder = 0;
-        self.remove_readed_messages(); 
-        for stream in self.listener.incoming(){
+        for stream in self.listener.incoming(){ 
             match stream { 
                 Ok(mut stream)=>{ 
                    let mut buffer =[0;100];    
@@ -26,18 +28,28 @@ impl DostoevskyNode{
                    match std::str::from_utf8(&buffer) {
                        Ok(res) =>{ 
                            let  words:Vec<&str> = res.split_whitespace().collect();
-                           if words.len()>=5{
-                                println!("new {} named {} connected with the valid connection request ",words[2],words[4]);
+                           println!("{:?}",words); 
+                           if words.len()>=6{
+                                println!("new {} named {} connected with the valid connection request ",words[2],words[4]);                                let topic = match self.topics.get(words[5]){  
+                                        Some(topic) =>topic,  
+                                        None =>{
+                                            println!("\nno topic specified");
+                                            continue; 
+                                        }
+                                    };
                                 if words[2]=="producer" {
-                                    let ph = ProducerHandler::new(words[4].to_string(),stream,Arc::clone(&self.message_queue)); 
-                                    let _ = ph.spawn(self.consumer_count);  
+                                    let ph = ProducerHandler::new(words[4].to_string(),stream,vec![Arc::clone(topic)]);    
+                                    let _ = ph.spawn();   
                                     continue; 
                                 }
-                                else if words[2] == "consumer" {  
-                                    let ch = ConsumerHandler::new(consumer_id_seeder+1,words[4].to_string(), stream, Arc::clone(&self.message_queue));  
+                                else if words[2] == "consumer" { 
+                                    //TODO; increment the consumer count   
+                                    let ch = ConsumerHandler::new(consumer_id_seeder+1,words[4].to_string(), stream,vec![Arc::clone(topic)]);  
+                                    let mut topic_mut = topic.lock().unwrap();
+                                    topic_mut.add_consumer(); 
+                                    drop(topic_mut); 
                                     consumer_id_seeder+=1;
-                                    self.consumer_count+=1;
-                                    let _ = ch.spawn(); 
+                                    let _ = ch.spawn();
                                     continue;  
                                 }
                            }
@@ -57,30 +69,13 @@ impl DostoevskyNode{
 }
 
 impl DostoevskyNode{
-    fn remove_readed_messages(&mut self){
-        let message_queue = Arc::clone(&self.message_queue);  
-        thread::spawn(move || { 
-            loop {
-                println!("trying to clean the queue");
-                let mut message_queue = message_queue.lock().unwrap(); 
-                match message_queue.get(0){
-                    Some(message)=>{
-                        println!("\tremaining are : {}",message.get_remaining_consumed_count()); 
-                        if message.get_remaining_consumed_count()<= 0 {
-                            println!("cleaning the first message");  
-                            message_queue.pop();      
-                        }
-                        else {
-                            drop(message_queue);
-                            sleep(Duration::from_secs(20));
-                        }
-                    }
-                    None=>{
-                        drop(message_queue);
-                        sleep(Duration::from_secs(20));
-                    }
-                }
-            }} 
-            ); 
+    fn create_topic(&mut self,topic_name:String){
+        self.topics.entry(topic_name.clone()).or_insert_with(||{  
+            let topic = Topic::new(&topic_name);
+           Arc::new(Mutex::new(topic))  
+
+        }); 
+            
+         
     }
 }

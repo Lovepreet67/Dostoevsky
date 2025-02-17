@@ -16,7 +16,7 @@ fn main()->Result<(),std::io::Error>{
     }; 
     println!("trying to connect to the dostoevsky at : {}",dostoevsky_addr);
     //TODO: remove the port clone 
-    let mut consumer_node = ConsumerNode::new(port.clone(),&dostoevsky_addr)?;  
+    let mut consumer_node = ConsumerNode::new(port.clone(),&dostoevsky_addr,args[3].clone())?;   
     println!("creating a new consumer node on port : {}",port); 
     consumer_node.start()?;     
     println!("\nwelcome to the system\n");
